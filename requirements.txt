@@ -1,0 +1,6 @@
+torch==1.9.0
+pytorch-lightning==1.4.6
+transformers==4.10.2
+tensorboardX==2.4
+test-tube==0.7.5
+sacrebleu==2.0.0
