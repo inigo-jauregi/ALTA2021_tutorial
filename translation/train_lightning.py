@@ -9,8 +9,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, Dataset
 from torch.nn.parallel import DistributedDataParallel
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, AutoConfig, AutoModelForSequenceClassification, \
-    BartForConditionalGeneration, MarianMTModel, MarianTokenizer
+import transformers
+import transformers.adapters.composition as ac
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from transformers.adapters.configuration import AdapterConfig
 from transformers.optimization import get_linear_schedule_with_warmup, Adafactor
 from sacrebleu.metrics import BLEU
 
@@ -123,7 +125,12 @@ class LmForTranslation(pl.LightningModule):
         self.hparams['params'] = params
         self.tokenizer = AutoTokenizer.from_pretrained(self.args.tokenizer)
         self.tokenizer.save_pretrained(self.args.save_dir, self.args.save_prefix)
-        self.model = BartForConditionalGeneration.from_pretrained(self.args.model_lm_path)
+        self.model = AutoModelForSeq2SeqLM.from_pretrained(self.args.model_lm_path)
+
+        if self.args.add_adapter:
+            config = AdapterConfig.load("pfeiffer", non_linearity="relu", reduction_factor=2)
+            self.model.add_adapter("mt_adapter", config=config)
+            self.model.train_adapter("mt_adapter")
 
         self.train_dataloader_object = self.val_dataloader_object = self.test_dataloader_object = None
 
@@ -323,6 +330,7 @@ class LmForTranslation(pl.LightningModule):
         parser.add_argument("--model_lm_path", type=str, default='../pretrained_lms/sshleifer-tiny-mbart',
                             help="Path to the checkpoint directory or model name")
         parser.add_argument("--tokenizer", type=str, default='../pretrained_lms/sshleifer-tiny-mbart')
+        parser.add_argument("--add_adapter", action='store_true', help="Add an adapter.")
         parser.add_argument("--progress_bar", type=int, default=10, help="Progress bar. Good for printing")
         parser.add_argument("--precision", type=int, default=32, help="Double precision (64), full precision (32) "
                                                                       "or half precision (16). Can be used on CPU, "
