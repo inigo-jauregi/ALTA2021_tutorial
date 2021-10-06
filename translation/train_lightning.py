@@ -11,7 +11,7 @@ from torch.utils.data import DataLoader, Dataset
 from torch.nn.parallel import DistributedDataParallel
 import transformers
 import transformers.adapters.composition as ac
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, MBartTokenizer
 from transformers.adapters.configuration import AdapterConfig
 from transformers.optimization import get_linear_schedule_with_warmup, Adafactor
 from sacrebleu.metrics import BLEU
@@ -56,9 +56,10 @@ class TranslationDataset(Dataset):
                 src_examples.append(tokenizer.encode(line.strip()))
 
         tgt_examples = []
-        with open(hf_dataset + '.' + tgt_prefix) as tgt_reader:
-            for line in tgt_reader:
-                tgt_examples.append(tokenizer.encode(line.strip()))
+        with tokenizer.as_target_tokenizer():
+            with open(hf_dataset + '.' + tgt_prefix) as tgt_reader:
+                for line in tgt_reader:
+                    tgt_examples.append(tokenizer.encode(line.strip()))
 
         if len(src_examples) != len(tgt_examples):
             raise "Number of source and target sentences must be the same."
@@ -123,12 +124,19 @@ class LmForTranslation(pl.LightningModule):
         super().__init__()
         self.args = params
         self.hparams['params'] = params
-        self.tokenizer = AutoTokenizer.from_pretrained(self.args.tokenizer)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.args.tokenizer, use_fast=False)
+        if isinstance(self.tokenizer, MBartTokenizer):
+            # print(self.tokenizer._src_lang)
+            # print(self.tokenizer.tgt_lang)
+            src_lan = self.args.src + "_XX"
+            tgt_lan = self.args.tgt + "_XX"  # + self.args.tgt.upper()
+            self.tokenizer._src_lang = src_lan
+            self.tokenizer.tgt_lang = tgt_lan
         self.tokenizer.save_pretrained(self.args.save_dir, self.args.save_prefix)
         self.model = AutoModelForSeq2SeqLM.from_pretrained(self.args.model_lm_path)
 
         if self.args.add_adapter:
-            config = AdapterConfig.load("pfeiffer", non_linearity="relu", reduction_factor=2)
+            config = AdapterConfig.load("pfeiffer", non_linearity="relu", reduction_factor=1)
             self.model.add_adapter("mt_adapter", config=config)
             self.model.train_adapter("mt_adapter")
 
@@ -138,6 +146,10 @@ class LmForTranslation(pl.LightningModule):
         # self.writer_label = open('lightning_labels.txt', 'w')
 
     def forward(self, src_ids, src_attention_mask, tgt_ids, tgt_attention_mask):
+
+        # for name, p in self.model.named_parameters():
+        #     print('Name: ', name, '  (required_grad=', p.requires_grad, ')')
+
         labels = tgt_ids[:, 1:].clone()
         # print([self.tokenizer.decode(t, skip_special_tokens=False) for t in labels])
         decoder_input_ids = tgt_ids[:, :-1]
@@ -191,7 +203,7 @@ class LmForTranslation(pl.LightningModule):
         src_ids, src_attention_mask, tgt_ids, tgt_attention_mask = batch
         src_str = self.tokenizer.batch_decode(src_ids.tolist(), skip_special_tokens=True)
         generated_ids = self.model.generate(input_ids=src_ids, attention_mask=src_attention_mask,
-                                            decoder_start_token_id=self.tokenizer.bos_token_id,
+                                            decoder_start_token_id=self.tokenizer.lang_code_to_id["en_XX"],
                                             max_length=self.args.max_output_len,
                                             num_beams=1, num_beam_groups=1, do_sample=False)
         generated_str = self.tokenizer.batch_decode(generated_ids.tolist(), skip_special_tokens=True)
@@ -200,8 +212,13 @@ class LmForTranslation(pl.LightningModule):
         return {'vloss': vloss, 'vaccuracy': outputs[1], 'ref_sentences': gold_str, 'pred_sentences': generated_str}
 
     def validation_epoch_end(self, outputs, test=False):
-        for p in self.model.parameters():
-            p.requires_grad = True
+        if self.args.add_adapter:
+            for name, p in self.model.named_parameters():
+                if 'adapters' in name:
+                    p.requires_grad = True
+        else:
+            for p in self.model.parameters():
+                p.requires_grad = True
 
         names = ['vloss', 'vaccuracy']
         metrics = []

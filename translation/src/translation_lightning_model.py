@@ -1,9 +1,27 @@
-from transformers import AutoTokenizer, BartForConditionalGeneration
+# Script to train the language model for text classification
 
-# Lightning modules
+# Script to train the joint model
+import os
+import argparse
+import random
+import numpy as np
+
+import torch
+from torch.utils.data import DataLoader, Dataset
+from torch.nn.parallel import DistributedDataParallel
+import transformers
+import transformers.adapters.composition as ac
+from transformers import AutoModelForSeq2SeqLM, AutoTokenizer, MBartTokenizer
+from transformers.adapters.configuration import AdapterConfig
+from transformers.optimization import get_linear_schedule_with_warmup, Adafactor
+from sacrebleu.metrics import BLEU
+
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TestTubeLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
+# from pytorch_lightning.overrides.data_parallel import LightningDistributedDataParallel
+
+from src.translation_metrics import translation_accuracy
 
 
 class LmForTranslation(pl.LightningModule):
@@ -12,9 +30,21 @@ class LmForTranslation(pl.LightningModule):
         super().__init__()
         self.args = params
         self.hparams['params'] = params
-        self.tokenizer = AutoTokenizer.from_pretrained(self.args.tokenizer)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.args.tokenizer, use_fast=False)
+        if isinstance(self.tokenizer, MBartTokenizer):
+            # print(self.tokenizer._src_lang)
+            # print(self.tokenizer.tgt_lang)
+            src_lan = self.args.src + "_XX"
+            tgt_lan = self.args.tgt + "_XX"  # + self.args.tgt.upper()
+            self.tokenizer._src_lang = src_lan
+            self.tokenizer.tgt_lang = tgt_lan
         self.tokenizer.save_pretrained(self.args.save_dir, self.args.save_prefix)
-        self.model = BartForConditionalGeneration.from_pretrained(self.args.model_lm_path)
+        self.model = AutoModelForSeq2SeqLM.from_pretrained(self.args.model_lm_path)
+
+        if self.args.add_adapter:
+            config = AdapterConfig.load("pfeiffer", non_linearity="relu", reduction_factor=1)
+            self.model.add_adapter("mt_adapter", config=config)
+            self.model.train_adapter("mt_adapter")
 
         self.train_dataloader_object = self.val_dataloader_object = self.test_dataloader_object = None
 
@@ -22,6 +52,10 @@ class LmForTranslation(pl.LightningModule):
         # self.writer_label = open('lightning_labels.txt', 'w')
 
     def forward(self, src_ids, src_attention_mask, tgt_ids, tgt_attention_mask):
+
+        # for name, p in self.model.named_parameters():
+        #     print('Name: ', name, '  (required_grad=', p.requires_grad, ')')
+
         labels = tgt_ids[:, 1:].clone()
         # print([self.tokenizer.decode(t, skip_special_tokens=False) for t in labels])
         decoder_input_ids = tgt_ids[:, :-1]
@@ -42,7 +76,7 @@ class LmForTranslation(pl.LightningModule):
             loss = ce_loss_fct(lm_logits.view(-1, lm_logits.shape[-1]), labels.view(-1))
         else:
             lprobs = torch.nn.functional.log_softmax(lm_logits, dim=-1)
-            loss, nll_loss = label_smoothed_nll_loss(
+            loss, nll_loss = self.label_smoothed_nll_loss(
                 lprobs, labels, self.args.label_smoothing, ignore_index=self.tokenizer.pad_token_id
             )
 
@@ -50,6 +84,29 @@ class LmForTranslation(pl.LightningModule):
         acc = translation_accuracy(lm_logits.detach(), labels, tokenizer=self.tokenizer)
 
         return [loss, acc]
+
+    @staticmethod
+    def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=-100):
+        """From fairseq"""
+        if target.dim() == lprobs.dim() - 1:
+            target = target.unsqueeze(-1)
+        nll_loss = -lprobs.gather(dim=-1, index=target)
+        smooth_loss = -lprobs.sum(dim=-1, keepdim=True)
+        if ignore_index is not None:
+            pad_mask = target.eq(ignore_index)
+            nll_loss.masked_fill_(pad_mask, 0.0)
+            smooth_loss.masked_fill_(pad_mask, 0.0)
+            count = (~pad_mask).sum()
+        else:
+            nll_loss = nll_loss.squeeze(-1)
+            smooth_loss = smooth_loss.squeeze(-1)
+            count = nll_loss.numel()
+
+        nll_loss = nll_loss.sum() / count
+        smooth_loss = smooth_loss.sum() / count
+        eps_i = epsilon / lprobs.size(-1)
+        loss = (1.0 - epsilon) * nll_loss + eps_i * smooth_loss
+        return loss, nll_loss
 
     def training_step(self, batch, batch_nb):
         output = self.forward(*batch)
@@ -75,7 +132,7 @@ class LmForTranslation(pl.LightningModule):
         src_ids, src_attention_mask, tgt_ids, tgt_attention_mask = batch
         src_str = self.tokenizer.batch_decode(src_ids.tolist(), skip_special_tokens=True)
         generated_ids = self.model.generate(input_ids=src_ids, attention_mask=src_attention_mask,
-                                            decoder_start_token_id=self.tokenizer.bos_token_id,
+                                            decoder_start_token_id=self.tokenizer.lang_code_to_id["en_XX"],
                                             max_length=self.args.max_output_len,
                                             num_beams=1, num_beam_groups=1, do_sample=False)
         generated_str = self.tokenizer.batch_decode(generated_ids.tolist(), skip_special_tokens=True)
@@ -84,8 +141,13 @@ class LmForTranslation(pl.LightningModule):
         return {'vloss': vloss, 'vaccuracy': outputs[1], 'ref_sentences': gold_str, 'pred_sentences': generated_str}
 
     def validation_epoch_end(self, outputs, test=False):
-        for p in self.model.parameters():
-            p.requires_grad = True
+        if self.args.add_adapter:
+            for name, p in self.model.named_parameters():
+                if 'adapters' in name:
+                    p.requires_grad = True
+        else:
+            for p in self.model.parameters():
+                p.requires_grad = True
 
         names = ['vloss', 'vaccuracy']
         metrics = []
@@ -214,6 +276,7 @@ class LmForTranslation(pl.LightningModule):
         parser.add_argument("--model_lm_path", type=str, default='../pretrained_lms/sshleifer-tiny-mbart',
                             help="Path to the checkpoint directory or model name")
         parser.add_argument("--tokenizer", type=str, default='../pretrained_lms/sshleifer-tiny-mbart')
+        parser.add_argument("--add_adapter", action='store_true', help="Add an adapter.")
         parser.add_argument("--progress_bar", type=int, default=10, help="Progress bar. Good for printing")
         parser.add_argument("--precision", type=int, default=32, help="Double precision (64), full precision (32) "
                                                                       "or half precision (16). Can be used on CPU, "
