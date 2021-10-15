@@ -284,7 +284,7 @@ class Summarizer(pl.LightningModule):
                                                                               "use ('native' or 'apex')")
         parser.add_argument("--cache_dir", type=str,
                             default='/home/jsparnel/Data/ALTA2021_tutorial/summarisation/datasets/',
-                            help="Path to datasets cache dir", required=False)
+                            help="Path to datasets cache dir")
 
         return parser
 
