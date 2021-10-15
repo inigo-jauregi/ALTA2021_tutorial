@@ -282,6 +282,9 @@ class Summarizer(pl.LightningModule):
         parser.add_argument("--progress_bar", type=int, default=10, help="Progress bar. Good for printing")
         parser.add_argument("--amp_backend", type=str, default='native', help="The mixed precision backend to "
                                                                               "use ('native' or 'apex')")
+        parser.add_argument("--cache_dir", type=str,
+                            default='/home/jsparnel/Data/ALTA2021_tutorial/summarisation/datasets/',
+                            help="Path to datasets cache dir", required=False)
 
         return parser
 
@@ -298,7 +301,7 @@ def main(args):
     else:
         model = Summarizer(args)
 
-    model.hf_datasets = nlp.load_dataset('multi_news')
+    model.hf_datasets = nlp.load_dataset('multi_news', cache_dir=args.cache_dir)
 
     logger = TestTubeLogger(
         save_dir=args.save_dir,
