@@ -4,21 +4,22 @@ import random
 import numpy as np
 
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, AutoConfig
 from transformers.optimization import get_linear_schedule_with_warmup, Adafactor
 import nlp
 from rouge_score import rouge_scorer
 
 import pytorch_lightning as pl
-from pytorch_lightning.logging import TestTubeLogger
+from pytorch_lightning.loggers import TestTubeLogger
 from pytorch_lightning.callbacks import ModelCheckpoint
-from pytorch_lightning.overrides.data_parallel import LightningDistributedDataParallel
+# from pytorch_lightning.overrides.data_parallel import LightningDistributedDataParallel
 
 from summarisation.src.summarisation_dataset import SummarizationDataset
 import torch.nn.functional as F
+from torch.nn.parallel import DistributedDataParallel
 
-from longformer import LongformerEncoderDecoderForConditionalGeneration, LongformerEncoderDecoderConfig
+# from longformer import LongformerEncoderDecoderForConditionalGeneration, LongformerEncoderDecoderConfig
 # from longformer.sliding_chunks import pad_to_window_size
 
 
@@ -47,7 +48,7 @@ class Summarizer(pl.LightningModule):
     def _prepare_input(self, input_ids):
         attention_mask = torch.ones(input_ids.shape, dtype=torch.long, device=input_ids.device)
         attention_mask[input_ids == self.tokenizer.pad_token_id] = 0
-        # remove this if statement, if we are loading from HF?
+        # remove this if statement, if we are loading from HF
         # if isinstance(self.model, LongformerEncoderDecoderForConditionalGeneration):
             # global attention on one token for all model params to be used, which is important for grad ckpt to work
         #     attention_mask[:, 0] = 2
@@ -158,7 +159,7 @@ class Summarizer(pl.LightningModule):
         metrics = []
         for name in names:
             metric = torch.stack([x[name] for x in outputs]).mean()
-            if self.trainer.use_ddp:
+            if self.trainer.accelerator_connector.use_ddp:
                 torch.distributed.all_reduce(metric, op=torch.distributed.ReduceOp.SUM)
                 metric /= self.trainer.world_size
             metrics.append(metric)
@@ -192,38 +193,37 @@ class Summarizer(pl.LightningModule):
             return current_dataloader
         dataset = SummarizationDataset(hf_dataset=self.hf_datasets[split_name], tokenizer=self.tokenizer,
                                        max_input_len=self.args.max_input_len, max_output_len=self.args.max_output_len)
-        sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=is_train) if self.trainer.use_ddp else None
+        sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=is_train) if \
+            self.trainer.accelerator_connector.use_ddp else None
         return DataLoader(dataset, batch_size=self.args.batch_size, shuffle=(sampler is None),
                           num_workers=self.args.num_workers, sampler=sampler,
                           collate_fn=SummarizationDataset.collate_fn)
 
-    # @pl.data_loader
     def train_dataloader(self):
         self.train_dataloader_object = self._get_dataloader(self.train_dataloader_object, 'train', is_train=True)
         return self.train_dataloader_object
 
-    # @pl.data_loader
     def val_dataloader(self):
         self.val_dataloader_object = self._get_dataloader(self.val_dataloader_object, 'validation', is_train=False)
         return self.val_dataloader_object
 
-    # @pl.data_loader
     def test_dataloader(self):
         self.test_dataloader_object = self._get_dataloader(self.test_dataloader_object, 'test', is_train=False)
         return self.test_dataloader_object
 
     def configure_ddp(self, model, device_ids):
-        model = LightningDistributedDataParallel(
+        model = DistributedDataParallel(
             model,
             device_ids=device_ids,
             find_unused_parameters=False
         )
         return model
 
-    @staticmethod
+    @staticmethod  # remove this if LED works using AutoModel
     def pad_to_window_size(input_ids: torch.Tensor, attention_mask: torch.Tensor,
                            one_sided_window_size: int, pad_token_id: int):
-        '''A helper function to pad tokens and mask to work with the sliding_chunks implementation of Longformer selfattention.
+        '''A helper function to pad tokens and mask to work with the sliding_chunks implementation of Longformer
+            selfattention.
         Input:
             input_ids = torch.Tensor(bsz x seqlen): ids of wordpieces
             attention_mask = torch.Tensor(bsz x seqlen): attention mask
@@ -257,7 +257,7 @@ class Summarizer(pl.LightningModule):
         parser.add_argument("--disable_checkpointing", action='store_true', help="No logging or checkpointing")
         parser.add_argument("--max_output_len", type=int, default=256,
                             help="maximum num of wordpieces/summary. Used for training and testing")
-        parser.add_argument("--max_input_len", type=int, default=8192,
+        parser.add_argument("--max_input_len", type=int, default=512,
                             help="maximum num of wordpieces/summary. Used for training and testing")
         parser.add_argument("--test", action='store_true', help="Test only, no training")
         parser.add_argument("--model_path", type=str, default='facebook/bart-base',
@@ -280,8 +280,6 @@ class Summarizer(pl.LightningModule):
         parser.add_argument("--precision", type=int, default=32, help="Double precision (64), full precision (32) "
                                                                       "or half precision (16). Can be used on CPU, "
                                                                       "GPU or TPUs.")
-        parser.add_argument("--model_lm_path", type=str, default='BART OR LONGFORMER',
-                            help="Path to the checkpoint directory or model name")
         parser.add_argument("--progress_bar", type=int, default=10, help="Progress bar. Good for printing")
         parser.add_argument("--amp_backend", type=str, default='native', help="The mixed precision backend to "
                                                                               "use ('native' or 'apex')")
@@ -315,7 +313,7 @@ def main(args):
         verbose=True,
         monitor='avg_val_loss',
         mode='min',
-        period=-1
+        period=0
     )
 
     print(args)
