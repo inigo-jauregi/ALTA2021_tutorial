@@ -263,7 +263,6 @@ class Summarizer(pl.LightningModule):
         parser.add_argument("--model_path", type=str, default='facebook/bart-base',
                             help="Path to the checkpoint directory or model name")
         parser.add_argument("--tokenizer", type=str, default='facebook/bart-base')
-        # parser.add_argument("--fp32", action='store_true', help="default is fp16. Use --fp32 to switch to fp32")
         parser.add_argument("--debug", action='store_true', help="debug run")
         parser.add_argument("--resume_ckpt", type=str, help="Path of a checkpoint to resume from")
         parser.add_argument("--from_pretrained", type=str, default=None,
