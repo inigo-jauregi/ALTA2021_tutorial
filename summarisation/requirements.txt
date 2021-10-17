@@ -1,0 +1,7 @@
+torch==1.9.0
+pytorch-lightning==1.4.9
+tensorboardX==2.4
+test-tube==0.7.5
+nlp
+rouge_score
+transformers==4.11.3
