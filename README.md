@@ -1,5 +1,5 @@
 # ALTA 2021 - Tutorial Code 
-<img src="alta_logo.png" width="170" alt="ALTA Logo" align="right">
+<img src="images/alta_logo.png" width="170" alt="ALTA Logo" align="right">
 
 #### <sup>1,2</sup>Jacob Parnell, <sup>1,2</sup>Inigo Jauregi Unanue and <sup>1</sup>Prof. Massimo Piccardi
 <sup>1</sup>University of Technology Sydney (UTS)
