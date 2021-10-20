@@ -19,7 +19,7 @@ insterted).
 In this code repository we show how to train neural machine translation
 and abstractive summarisation models using PyTorch Lightning, a 
 framework meant to remove the "boilerplate" from the development of 
-research models, and pretrained language models from Huggingface.
+research models.
 
 ## Getting Started
 
