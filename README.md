@@ -1,5 +1,5 @@
 # ALTA 2021 - Tutorial Code 
-<img src="alta_logo.png" width="200" alt="ALTA Logo" align="right">
+<img src="alta_logo.png" width="170" alt="ALTA Logo" align="right">
 
 #### <sup>1,2</sup>Jacob Parnell, <sup>1,2</sup>Inigo Jauregi Unanue and <sup>1</sup>Prof. Massimo Piccardi
 <sup>1</sup>University of Technology Sydney (UTS)
@@ -10,12 +10,30 @@
 
 ## Introduction
 
-This tutorial addresses neural machine translation (NMT) and summarisation 
-by deep learning approaches*. We will first provide a general introduction 
-covering baseline models, training, inference and evaluation. We will then 
-review some of the contemporary approaches, including reinforcement 
-learning-based, transfer learning-based, unsupervised, and a few more. 
-The rest of the tutorial will present code in PyTorch Lightning, a framework 
-meant to remove the "boilerplate" from the development of research models. 
-The speakers are Iñigo Jauregi Unanue, Jacob Parnell and Massimo Piccardi 
-from UTS and RoZetta Technology.
+This is the code used in the tutorial at the
+[19th Annual Workshop of the Australasian Language Technology 
+Association (ALTA 2021)](https://alta2021.alta.asn.au/).
+You can find the slides of the presentation here(link needs to be 
+insterted). 
+
+In this code repository we show how to train neural machine translation
+and abstractive summarisation models using PyTorch Lightning, a 
+framework meant to remove the "boilerplate" from the development of 
+research models, and pretrained language models from Huggingface.
+
+## Getting Started
+
+- Can run this on jupyter notebooks, or in google-colab.
+
+### Translation
+
+Check the README file in the translation folder.
+
+### Summarisation
+
+Check the README file in the summarisation folder.
+
+## References
+
+- Pytorch Lightning
+- Transformers
