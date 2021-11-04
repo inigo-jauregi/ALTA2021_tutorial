@@ -161,6 +161,8 @@ class LmForSummarisation(pl.LightningModule):
                 metric /= self.trainer.world_size
             metrics.append(metric)
         logs = dict(zip(*[names, metrics]))
+        self.log("validation_loss", logs['vloss'], prog_bar=True)
+        self.log("average_rouge", (logs['rouge1']+logs['rouge2']+logs['rougeL'])/3, prog_bar=True)
         print(logs)
         return {'avg_val_loss': logs['vloss'], 'log': logs, 'progress_bar': logs}
 
