@@ -64,8 +64,7 @@ class LmForSummarisation(pl.LightningModule):
         # Tokenize the document
         input_ids = self.tokenizer.encode(input_document, truncation=True, max_length=self.args['max_input_len'])
         input_ids = torch.tensor(input_ids)
-        # Generate attention mask
-        # input_ids, attention_mask = self._prepare_input(input_ids)
+        # Generate attention mask - similar to prepare_input() and collate_fn()
         attention_mask = torch.ones(input_ids.shape, dtype=torch.long, device=input_ids.device)
         attention_mask[input_ids == self.tokenizer.pad_token_id] = 0
 
@@ -73,7 +72,6 @@ class LmForSummarisation(pl.LightningModule):
         doc_attention_mask = torch.nn.utils.rnn.pad_sequence([torch.tensor(attention_mask)],
                                                              batch_first=True, padding_value=0)
 
-        # decoder_start_token_id = self.tokenizer.bos_token_id
         generated_ids = self.model.generate(input_ids=doc_ids, attention_mask=doc_attention_mask,
                                             use_cache=True, max_length=self.args['max_output_len'],
                                             num_beams=1)
