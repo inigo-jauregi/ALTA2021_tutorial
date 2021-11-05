@@ -29,7 +29,6 @@ class LmForSummarisation(pl.LightningModule):
             config.attention_window = [self.args['attention_window']] * config.encoder_layers
         self.model = AutoModelForSeq2SeqLM.from_pretrained(self.args['model_path'], config=config)
         self.train_dataloader_object = self.val_dataloader_object = self.test_dataloader_object = None
-        print(config)
 
     def _prepare_input(self, input_ids):
         attention_mask = torch.ones(input_ids.shape, dtype=torch.long, device=input_ids.device)
