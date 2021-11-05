@@ -34,7 +34,6 @@ class LmForSummarisation(pl.LightningModule):
     def _prepare_input(self, input_ids):
         attention_mask = torch.ones(input_ids.shape, dtype=torch.long, device=input_ids.device)
         attention_mask[input_ids == self.tokenizer.pad_token_id] = 0
-        # attention_mask[:, 0] = 2  # global attention on one token for all model params to be used (impt for grad ckpt)
         return input_ids, attention_mask
 
     def forward(self, input_ids, output_ids):
@@ -69,7 +68,6 @@ class LmForSummarisation(pl.LightningModule):
         # input_ids, attention_mask = self._prepare_input(input_ids)
         attention_mask = torch.ones(input_ids.shape, dtype=torch.long, device=input_ids.device)
         attention_mask[input_ids == self.tokenizer.pad_token_id] = 0
-        # attention_mask[:, 0] = 2
 
         doc_ids = torch.nn.utils.rnn.pad_sequence([input_ids], batch_first=True, padding_value=1)
         doc_attention_mask = torch.nn.utils.rnn.pad_sequence([torch.tensor(attention_mask)],
