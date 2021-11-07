@@ -5,3 +5,4 @@ test-tube==0.7.5
 nlp
 rouge_score
 transformers==4.11.3
+jupyter==1.0.0
