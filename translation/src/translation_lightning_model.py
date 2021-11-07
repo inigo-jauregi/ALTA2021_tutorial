@@ -38,6 +38,10 @@ class LmForTranslation(pl.LightningModule):
             self.model.add_adapter("mt_adapter", config=config)
             self.model.train_adapter("mt_adapter")
 
+        self.hf_datasets = {'train': self.args['train_data'],
+                            'validation': self.args['validation_data'],
+                            'test': self.args['test_data']}
+
         self.train_dataloader_object = self.val_dataloader_object = self.test_dataloader_object = None
 
     def forward(self, src_ids, src_attention_mask, tgt_ids, tgt_attention_mask):
@@ -187,7 +191,7 @@ class LmForTranslation(pl.LightningModule):
 
     def test_epoch_end(self, outputs):
         result = self.validation_epoch_end(outputs, test=True)
-        print(result)
+        return result
 
     def configure_optimizers(self):
         # Define AdamW optimizer
