@@ -95,6 +95,17 @@ class LmForTranslation(pl.LightningModule):
 
         return generated_str
 
+    def num_parameters(self):
+        trainable_params = 0
+        non_trainable_params = 0
+        for p in self.model.parameters():
+            if p.requires_grad == False:
+                non_trainable_params += p.numel()
+            else:
+                trainable_params += p.numel()
+
+        return trainable_params, non_trainable_params
+
     @staticmethod
     def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=-100):
         """From fairseq"""
@@ -141,7 +152,7 @@ class LmForTranslation(pl.LightningModule):
         # Generate translation
         src_ids, src_attention_mask, tgt_ids, tgt_attention_mask = batch
         if isinstance(self.tokenizer, MBartTokenizer):
-            decoder_start_token_id = self.tokenizer.lang_code_to_id["en_XX"]
+            decoder_start_token_id = self.tokenizer.lang_code_to_id["es_XX"]
         else:
             decoder_start_token_id = self.tokenizer.bos_token_id
         generated_ids = self.model.generate(input_ids=src_ids, attention_mask=src_attention_mask,
