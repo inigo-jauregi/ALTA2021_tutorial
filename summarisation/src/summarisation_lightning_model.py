@@ -1,65 +1,38 @@
-import os
-import argparse
-import random
-import numpy as np
+# Script to train a summarisation model with Pytorch Lightning and
+# a pretrainedSeq2seq model from Huggingface
 
 import torch
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, AutoConfig
 from transformers.optimization import get_linear_schedule_with_warmup, Adafactor
-import nlp
 from rouge_score import rouge_scorer
 
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import TestTubeLogger
-from pytorch_lightning.callbacks import ModelCheckpoint
-# from pytorch_lightning.overrides.data_parallel import LightningDistributedDataParallel
 
-from summarisation.src.summarisation_dataset import SummarizationDataset
-import torch.nn.functional as F
+from src.summarisation_dataset import SummarizationDataset
 from torch.nn.parallel import DistributedDataParallel
 
-# from longformer import LongformerEncoderDecoderForConditionalGeneration, LongformerEncoderDecoderConfig
-# from longformer.sliding_chunks import pad_to_window_size
 
-
-class Summarizer(pl.LightningModule):
+class LmForSummarisation(pl.LightningModule):
 
     def __init__(self, params):
         super().__init__()
         self.args = params
         self.hparams['params'] = params
-        self.tokenizer = AutoTokenizer.from_pretrained(self.args.tokenizer, use_fast=True)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.args['tokenizer'], use_fast=True)
 
-        # if 'long' in self.args.model_path:
-        #     config = LongformerEncoderDecoderConfig.from_pretrained(self.args.model_path)
-        #     config.attention_dropout = self.args.attention_dropout
-        #     config.gradient_checkpointing = self.args.grad_ckpt
-        #     config.attention_mode = self.args.attention_mode
-        #     config.attention_window = [self.args.attention_window] * config.encoder_layers
-        #     self.model = LongformerEncoderDecoderForConditionalGeneration.from_pretrained(
-        #         self.args.model_path, config=config)
-        # else:
-        config = AutoConfig.from_pretrained(self.args.model_path)
-        config.attention_dropout = self.args.attention_dropout
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(self.args.model_path, config=config)
+        config = AutoConfig.from_pretrained(self.args['model_path'])
+        config.attention_dropout = self.args['attention_dropout']
+        if self.args['model_path'] == 'allenai/led-base-16384':
+            config.gradient_checkpointing = self.args['grad_ckpt']
+            config.attention_mode = self.args['attention_mode']
+            config.attention_window = [self.args['attention_window']] * config.encoder_layers
+        self.model = AutoModelForSeq2SeqLM.from_pretrained(self.args['model_path'], config=config)
         self.train_dataloader_object = self.val_dataloader_object = self.test_dataloader_object = None
 
     def _prepare_input(self, input_ids):
         attention_mask = torch.ones(input_ids.shape, dtype=torch.long, device=input_ids.device)
         attention_mask[input_ids == self.tokenizer.pad_token_id] = 0
-        # remove this if statement, if we are loading from HF
-        # if isinstance(self.model, LongformerEncoderDecoderForConditionalGeneration):
-            # global attention on one token for all model params to be used, which is important for grad ckpt to work
-        #     attention_mask[:, 0] = 2
-        #     if self.args.attention_mode == 'sliding_chunks':
-        #         half_padding_mod = self.model.config.attention_window[0]
-        #     elif self.args.attention_mode == 'sliding_chunks_no_overlap':
-        #         half_padding_mod = self.model.config.attention_window[0] / 2
-        #     else:
-        #         raise NotImplementedError
-        #     input_ids, attention_mask = self.pad_to_window_size(
-        #         input_ids, attention_mask, half_padding_mod, self.tokenizer.pad_token_id)
         return input_ids, attention_mask
 
     def forward(self, input_ids, output_ids):
@@ -74,7 +47,7 @@ class Summarizer(pl.LightningModule):
                 decoder_attention_mask=decoder_attention_mask,
                 use_cache=False,)
         lm_logits = outputs[0]
-        if self.args.label_smoothing == 0:
+        if self.args['label_smoothing'] == 0:
             # Same behavior as modeling_bart.py, besides ignoring pad_token_id
             ce_loss_fct = torch.nn.CrossEntropyLoss(ignore_index=self.tokenizer.pad_token_id)
             assert lm_logits.shape[-1] == self.model.config.vocab_size
@@ -82,9 +55,28 @@ class Summarizer(pl.LightningModule):
         else:
             lprobs = torch.nn.functional.log_softmax(lm_logits, dim=-1)
             loss, nll_loss = self.label_smoothed_nll_loss(
-                lprobs, labels, self.args.label_smoothing, ignore_index=self.tokenizer.pad_token_id
+                lprobs, labels, self.args['label_smoothing'], ignore_index=self.tokenizer.pad_token_id
             )
         return [loss]
+
+    def summarise_example(self, input_document):
+        # Tokenize the document
+        input_ids = self.tokenizer.encode(input_document, truncation=True, max_length=self.args['max_input_len'])
+        input_ids = torch.tensor(input_ids)
+        # Generate attention mask - similar to prepare_input() and collate_fn()
+        attention_mask = torch.ones(input_ids.shape, dtype=torch.long, device=input_ids.device)
+        attention_mask[input_ids == self.tokenizer.pad_token_id] = 0
+
+        doc_ids = torch.nn.utils.rnn.pad_sequence([input_ids], batch_first=True, padding_value=1)
+        doc_attention_mask = torch.nn.utils.rnn.pad_sequence([torch.tensor(attention_mask)],
+                                                             batch_first=True, padding_value=0)
+
+        generated_ids = self.model.generate(input_ids=doc_ids, attention_mask=doc_attention_mask,
+                                            use_cache=True, max_length=self.args['max_output_len'],
+                                            num_beams=1)
+        # Decode to string
+        generated_str = self.tokenizer.batch_decode(generated_ids.tolist(), skip_special_tokens=True)
+        return generated_str
 
     @staticmethod
     def label_smoothed_nll_loss(lprobs, target, epsilon, ignore_index=-100):
@@ -128,7 +120,7 @@ class Summarizer(pl.LightningModule):
         input_ids, output_ids = batch
         input_ids, attention_mask = self._prepare_input(input_ids)
         generated_ids = self.model.generate(input_ids=input_ids, attention_mask=attention_mask,
-                                            use_cache=True, max_length=self.args.max_output_len,
+                                            use_cache=True, max_length=self.args['max_output_len'],
                                             num_beams=1)
         generated_str = self.tokenizer.batch_decode(generated_ids.tolist(), skip_special_tokens=True)
         gold_str = self.tokenizer.batch_decode(output_ids.tolist(), skip_special_tokens=True)
@@ -164,6 +156,8 @@ class Summarizer(pl.LightningModule):
                 metric /= self.trainer.world_size
             metrics.append(metric)
         logs = dict(zip(*[names, metrics]))
+        self.log("validation_loss", logs['vloss'], prog_bar=True)
+        self.log("average_rouge", (logs['rouge1']+logs['rouge2']+logs['rougeL'])/3, prog_bar=True)
         print(logs)
         return {'avg_val_loss': logs['vloss'], 'log': logs, 'progress_bar': logs}
 
@@ -175,16 +169,18 @@ class Summarizer(pl.LightningModule):
         print(result)
 
     def configure_optimizers(self):
-        if self.args.adafactor:
-            optimizer = Adafactor(self.model.parameters(), lr=self.args.lr, scale_parameter=False, relative_step=False)
+        if self.args['adafactor']:
+            optimizer = Adafactor(self.model.parameters(), lr=self.args['lr'], scale_parameter=False,
+                                  relative_step=False)
         else:
-            optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args.lr)
-        if self.args.debug:
+            optimizer = torch.optim.Adam(self.model.parameters(), lr=self.args['lr'])
+        if self.args['debug']:
             return optimizer  # const LR
         num_gpus = torch.cuda.device_count() if torch.cuda.is_available() else 1
-        num_steps = self.args.dataset_size * self.args.epochs / num_gpus / self.args.grad_accum / self.args.batch_size
+        num_steps = self.args['dataset_size'] * self.args['epochs'] / num_gpus / self.args['grad_accum'] / \
+                    self.args['batch_size']
         scheduler = get_linear_schedule_with_warmup(
-            optimizer, num_warmup_steps=self.args.warmup, num_training_steps=num_steps
+            optimizer, num_warmup_steps=self.args['warmup'], num_training_steps=num_steps
         )
         return [optimizer], [{"scheduler": scheduler, "interval": "step"}]
 
@@ -192,11 +188,12 @@ class Summarizer(pl.LightningModule):
         if current_dataloader is not None:
             return current_dataloader
         dataset = SummarizationDataset(hf_dataset=self.hf_datasets[split_name], tokenizer=self.tokenizer,
-                                       max_input_len=self.args.max_input_len, max_output_len=self.args.max_output_len)
+                                       max_input_len=self.args['max_input_len'],
+                                       max_output_len=self.args['max_output_len'])
         sampler = torch.utils.data.distributed.DistributedSampler(dataset, shuffle=is_train) if \
             self.trainer.accelerator_connector.use_ddp else None
-        return DataLoader(dataset, batch_size=self.args.batch_size, shuffle=(sampler is None),
-                          num_workers=self.args.num_workers, sampler=sampler,
+        return DataLoader(dataset, batch_size=self.args['batch_size'], shuffle=(sampler is None),
+                          num_workers=self.args['num_workers'], sampler=sampler,
                           collate_fn=SummarizationDataset.collate_fn)
 
     def train_dataloader(self):
@@ -218,134 +215,3 @@ class Summarizer(pl.LightningModule):
             find_unused_parameters=False
         )
         return model
-
-    @staticmethod  # remove this if LED works using AutoModel
-    def pad_to_window_size(input_ids: torch.Tensor, attention_mask: torch.Tensor,
-                           one_sided_window_size: int, pad_token_id: int):
-        '''A helper function to pad tokens and mask to work with the sliding_chunks implementation of Longformer
-            selfattention.
-        Input:
-            input_ids = torch.Tensor(bsz x seqlen): ids of wordpieces
-            attention_mask = torch.Tensor(bsz x seqlen): attention mask
-            one_sided_window_size = int: window size on one side of each token
-            pad_token_id = int: tokenizer.pad_token_id
-        Returns
-            (input_ids, attention_mask) padded to length divisible by 2 * one_sided_window_size
-        '''
-        w = int(2 * one_sided_window_size)
-        seqlen = input_ids.size(1)
-        padding_len = (w - seqlen % w) % w
-        input_ids = F.pad(input_ids, (0, padding_len), value=pad_token_id)
-        attention_mask = F.pad(attention_mask, (0, padding_len), value=False)  # no attention on the padding tokens
-        return input_ids, attention_mask
-
-    @staticmethod
-    def add_model_specific_args(parser, root_dir):
-        parser.add_argument("--save_dir", type=str, default='summarisation')
-        parser.add_argument("--save_prefix", type=str, default='test')
-        parser.add_argument("--batch_size", type=int, default=1, help="Batch size")
-        parser.add_argument("--grad_accum", type=int, default=1, help="number of gradient accumulation steps")
-        parser.add_argument("--gpus", type=int, default=-1,
-                            help="Number of gpus. 0 for CPU")
-        parser.add_argument("--warmup", type=int, default=1000, help="Number of warmup steps")
-        parser.add_argument("--lr", type=float, default=0.00003, help="Maximum learning rate")
-        parser.add_argument("--val_every", type=float, default=1.0, help="Number of training steps between validations")
-        parser.add_argument("--val_percent_check", default=1.00, type=float, help='Percent of validation data used')
-        parser.add_argument("--num_workers", type=int, default=0, help="Number of data loader workers")
-        parser.add_argument("--seed", type=int, default=1234, help="Seed")
-        parser.add_argument("--epochs", type=int, default=5, help="Number of epochs")
-        parser.add_argument("--disable_checkpointing", action='store_true', help="No logging or checkpointing")
-        parser.add_argument("--max_output_len", type=int, default=256,
-                            help="maximum num of wordpieces/summary. Used for training and testing")
-        parser.add_argument("--max_input_len", type=int, default=512,
-                            help="maximum num of wordpieces/summary. Used for training and testing")
-        parser.add_argument("--test", action='store_true', help="Test only, no training")
-        parser.add_argument("--model_path", type=str, default='facebook/bart-base',
-                            help="Path to the checkpoint directory or model name")
-        parser.add_argument("--tokenizer", type=str, default='facebook/bart-base')
-        parser.add_argument("--debug", action='store_true', help="debug run")
-        parser.add_argument("--resume_ckpt", type=str, help="Path of a checkpoint to resume from")
-        parser.add_argument("--from_pretrained", type=str, default=None,
-                            help="Path to a checkpoint to load model weights but not training state")
-        parser.add_argument('--grad_ckpt', action='store_true', help='Enable gradient checkpointing to save memory')
-        parser.add_argument("--attention_dropout", type=float, default=0.1, help="attention dropout")
-        parser.add_argument("--attention_mode", type=str, default='sliding_chunks', help="Longformer attention mode")
-        parser.add_argument("--attention_window", type=int, default=512, help="Attention window")
-        parser.add_argument("--label_smoothing", type=float, default=0.0, required=False)
-        parser.add_argument("--adafactor", action='store_true', help="Use adafactor optimizer")
-
-        # added custom
-        parser.add_argument("--max_grad_norm", type=float, default=1.0, help="number of gradient accumulation steps")
-        parser.add_argument("--precision", type=int, default=32, help="Double precision (64), full precision (32) "
-                                                                      "or half precision (16). Can be used on CPU, "
-                                                                      "GPU or TPUs.")
-        parser.add_argument("--progress_bar", type=int, default=10, help="Progress bar. Good for printing")
-        parser.add_argument("--amp_backend", type=str, default='native', help="The mixed precision backend to "
-                                                                              "use ('native' or 'apex')")
-        parser.add_argument("--cache_dir", type=str,
-                            default='/home/jsparnel/Data/ALTA2021_tutorial/summarisation/datasets/',
-                            help="Path to datasets cache dir")
-
-        return parser
-
-
-def main(args):
-    random.seed(args.seed)
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(args.seed)
-
-    if args.from_pretrained is not None:
-        model = Summarizer.load_from_checkpoint(args.from_pretrained, args)
-    else:
-        model = Summarizer(args)
-
-    model.hf_datasets = nlp.load_dataset('multi_news', cache_dir=args.cache_dir)
-
-    logger = TestTubeLogger(
-        save_dir=args.save_dir,
-        name=args.save_prefix,
-        version=0  # always use version=0
-    )
-
-    checkpoint_callback = ModelCheckpoint(
-        dirpath=os.path.join(args.save_dir, args.save_prefix, "checkpoints"),
-        save_top_k=5,
-        verbose=True,
-        monitor='avg_val_loss',
-        mode='min',
-        period=0
-    )
-
-    print(args)
-
-    args.dataset_size = 50594  # train + val -> needed for lr scheduler
-
-    trainer = pl.Trainer(gpus=args.gpus, distributed_backend='ddp' if torch.cuda.is_available() else None,
-                         track_grad_norm=-1,
-                         max_epochs=args.epochs if not args.debug else 100,
-                         max_steps=None if not args.debug else 1,
-                         replace_sampler_ddp=False,
-                         accumulate_grad_batches=args.grad_accum,
-                         gradient_clip_val=args.max_grad_norm,
-                         val_check_interval=args.val_every if not args.debug else 1,
-                         num_sanity_val_steps=2 if not args.debug else 0,
-                         check_val_every_n_epoch=1 if not args.debug else 1,
-                         logger=logger,
-                         callbacks=checkpoint_callback if not args.disable_checkpointing else False,
-                         progress_bar_refresh_rate=args.progress_bar,
-                         precision=args.precision,
-                         amp_backend=args.amp_backend, amp_level='O2',
-                         resume_from_checkpoint=args.resume_ckpt,
-                         )
-    if not args.test:
-        trainer.fit(model)
-    trainer.test(model)
-
-
-if __name__ == "__main__":
-    main_arg_parser = argparse.ArgumentParser(description="summarization")
-    parser = Summarizer.add_model_specific_args(main_arg_parser, os.getcwd())
-    args = parser.parse_args()
-    main(args)
