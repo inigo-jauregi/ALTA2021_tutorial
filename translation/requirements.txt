@@ -6,3 +6,4 @@ sacrebleu==2.0.0
 adapter-transformers==2.1.2
 gdown==4.2.0
 matplotlib==3.3.4
+sentencepiece==0.1.96
