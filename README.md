@@ -17,7 +17,7 @@ You can find the slides of the presentation here(link needs to be
 insterted). 
 
 In this code repository we show how to train neural machine translation
-and abstractive summarisation models using PyTorch Lightning, a 
+and abstractive summarisation models using [PyTorch Lightning](https://www.pytorchlightning.ai/), a 
 framework meant to remove the "boilerplate" from the development of 
 research models.
 
@@ -27,13 +27,8 @@ research models.
 
 ### Translation
 
-Check the README file in the translation folder.
+Check the translation folder to start with this section of the tutorial.
 
 ### Summarisation
 
-Check the README file in the summarisation folder.
-
-## References
-
-- Pytorch Lightning
-- Transformers
+Check the summarisation folder to start with this section of the tutorial.
