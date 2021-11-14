@@ -23,12 +23,15 @@ research models.
 
 ## Getting Started
 
-- Can run this on jupyter notebooks, or in google-colab.
+We provide two notebooks (one for translation and one for summarisation) as part of the tutorial. You can run this on 
+Jupyter notebooks or Google-colab.
 
 ### Translation
 
-Check the translation folder to start with this section of the tutorial.
+Check the [translation folder](https://github.com/ijauregiCMCRC/ALTA2021_tutorial/tree/main/translation) to 
+start with this section of the tutorial.
 
 ### Summarisation
 
-Check the summarisation folder to start with this section of the tutorial.
+Check the [summarisation folder](https://github.com/ijauregiCMCRC/ALTA2021_tutorial/tree/main/summarisation) to 
+start with this section of the tutorial.
