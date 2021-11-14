@@ -53,7 +53,7 @@ section shows how to start using the notebook in Google Colab.
 ### Google Colab
 
 1. Open [Google Colab](https://colab.research.google.com/?utm_source=scs-index)
-2. Select GitHub as the source of notebook and paste this repository's URL (https://github.com/ijauregiCMCRC/ALTA2021_tutorial) <img src="../images/google_colab.png" width="170" alt="Google Colab Start Page">
+2. Select GitHub as the source of notebook and paste this repository's URL (https://github.com/ijauregiCMCRC/ALTA2021_tutorial) <img src="../images/google_colab.png" width="600" alt="Google Colab Start Page">
 3. Two notebooks will be available. Select the translation notebook (translation/train_and_eval_notebook.ipynb)
 4. That should open the notebook in Google Colab. Select the instance type (i.e. CPU, GPU, TPU) and follow the notebook instructions.
 
