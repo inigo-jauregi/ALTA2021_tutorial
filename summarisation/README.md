@@ -42,8 +42,27 @@ The notebook is divided in two main tasks:
 
 ## Getting Started
 
-The notebook can be run in Jupyter Notebooks or in Google Colab. The following 
-section shows how to start using the notebook in Google Colab.
+### Jupyter Notebooks
+If you are running this notebook in Jupyter, you will need to create your own virtual environment and install the packages in the `requirements.txt` file. To do this, run the following in the command line:
+```
+# Create a virtualenv called "alta_venv"
+python3 -m venv alta_venv
+
+# Activate the virtual environment
+source alta_venv/bin/activate
+
+# Clone the repository from GitHub
+git clone https://github.com/ijauregiCMCRC/ALTA2021_tutorial.git
+
+# Change into the summarisation directory and install
+cd ALTA2021_tutorial/summarisation/
+pip install -r requirements.txt
+
+# Run Jupyter
+jupyter-notebook
+```
+
+**Disclaimer:** We are running this notebook in Jupyter, not Colab, to avoid memory problems associated with the use of the LED model in Google Colab. We outline below how you can still run it in Colab if you choose.
 
 ### Google Colab
 
@@ -51,6 +70,7 @@ section shows how to start using the notebook in Google Colab.
 2. Select GitHub as the source of notebook and paste this repository's URL (https://github.com/ijauregiCMCRC/ALTA2021_tutorial)
 3. Two notebooks will be available. Select the **summarisation** notebook (summarisation/train_and_eval_notebook.ipynb)
 4. That should open the notebook in Google Colab. Select the instance type (i.e. CPU, GPU, TPU) and follow the notebook instructions.
+5. **NOTE:** You may encounter errors after installing packages and importing them for use. You should be able to kill and restart the runtime to omit these errors.
 
 ## References
 
