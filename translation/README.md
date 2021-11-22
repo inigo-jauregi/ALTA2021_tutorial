@@ -38,7 +38,6 @@ what each block of code does.
 The notebook is divided in two main tasks:
 
 1. Train and evaluate a NMT model
-   1. A small BART model is used to speed-up training (`tiny-bart`)
 2. Compare the performance of three models previously trained by us (using the same code)
    1. `BART_base`
    2. `BART_base_with_adapter`
