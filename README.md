@@ -35,3 +35,6 @@ start with this section of the tutorial.
 
 Check the [summarisation folder](https://github.com/ijauregiCMCRC/ALTA2021_tutorial/tree/main/summarisation) to 
 start with this section of the tutorial.
+
+### Shared Materials
+The NMT and summarisation slide sets and accompanying videos are available [here](https://drive.google.com/drive/folders/147ViG0QhyguoQ_eETdNziVO6_Xxz5pU3?usp=sharing).
