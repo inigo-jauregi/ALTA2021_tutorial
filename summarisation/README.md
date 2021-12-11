@@ -4,7 +4,8 @@ ________
 ## Introduction
 
 In this section of the tutorial we show how quickly to train a
-state-of-the-art summarisation model.
+state-of-the-art summarisation model. Checkout the vide of the demo 
+[here](https://www.youtube.com/watch?v=8mNGjLXzOkA).
 
 We provide the code to leverage pretrained BART (Lewis et al., 2019) and Longformer Encoder Decoder (Beltagy et al., 2020) 
 models available in [Huggingface](https://huggingface.co/).

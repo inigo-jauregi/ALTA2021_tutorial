@@ -4,7 +4,8 @@ ________
 ## Introduction
 
 In this section of the tutorial we show how quickly to train a
-state-of-the-art NMT model.
+state-of-the-art NMT model. Checkout the vide of the demo 
+[here](https://www.youtube.com/watch?v=KetKmqRk7b0).
 
 We provide the code to leverage pretrained BART (Lewis et al., 2019) and mBART (aka multilingual BART) 
 models available in [Huggingface](https://huggingface.co/). Additionally, we show how train a model using
