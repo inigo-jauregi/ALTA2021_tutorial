@@ -13,8 +13,8 @@
 This is the code used in the tutorial at the
 [19th Annual Workshop of the Australasian Language Technology 
 Association (ALTA 2021)](https://alta2021.alta.asn.au/).
-You can find the slides of the presentation here the full tutorial 
-recording [here](https://www.youtube.com/watch?v=Zop8vhI9qKw)
+You can find the full recording of the tutorial 
+[here](https://www.youtube.com/watch?v=Zop8vhI9qKw).
 
 In this code repository we show how to train neural machine translation
 and abstractive summarisation models using [PyTorch Lightning](https://www.pytorchlightning.ai/), a 
